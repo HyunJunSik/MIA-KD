@@ -141,6 +141,7 @@ def model_train(model, model_name, dataset):
     model.to(device)
     
     best_acc = 0
+    best_model_wts = copy.deepcopy(model.state_dict())
     epoch_length = 200
     
     for epoch in range(epoch_length):
@@ -152,7 +153,6 @@ def model_train(model, model_name, dataset):
         if train_acc1 > best_acc:
             best_acc = train_acc1
             best_model_wts = copy.deepcopy(model.state_dict())
-        model.load_state_dict(best_model_wts)
         
         print(f"Train Loss: {train_loss}, Top-1 Accuracy: {train_acc1}, Top-5 Accuracy: {train_acc5}")
         logging.info(f"Train Loss: {train_loss}, Top-1 Accuracy: {train_acc1}, Top-5 Accuracy: {train_acc5}")
@@ -165,6 +165,7 @@ def model_train(model, model_name, dataset):
     learning_time = time.time() - start_time
     logging.info(f"Learning Time: {learning_time // 60:.0f}m {learning_time % 60:.0f}s")
     
+    model.load_state_dict(best_model_wts)
     torch.save(best_model_wts, f"model_pth/best_model_weights_{model_name}_student_cifar_10.pth")
     print(f"Learning Time : {learning_time // 60:.0f}m {learning_time % 60:.0f}s")
     

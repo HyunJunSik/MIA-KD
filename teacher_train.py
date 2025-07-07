@@ -30,7 +30,7 @@ from datasets import cifar_10
 from datasets.cifar_10 import membership_dataset_loader
 from models.lenet import lenet5, lenet5_half
 
-# non-member 
+# member 
 member_idx = np.load('./datasets/cifar-10/member_idx.npy')
 nonmember_idx = np.load('./datasets/cifar-10/nonmember_idx.npy')
 shadow_idx = np.load('./datasets/cifar-10/shadow_idx.npy')
@@ -118,16 +118,16 @@ def test(model, criterion, test_loader):
         
         return test_loss, test_acc1
     
-def adjust_learning_rate(optimizer, epoch):
-    """For resnet, the lr starts from 0.1, and is divided by 10 at 80 and 120 epochs"""
-    if epoch < 80:
-        lr = 0.1
-    elif epoch < 120:
-        lr = 0.01
-    else:
-        lr = 0.001
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+# def adjust_learning_rate(optimizer, epoch):
+#     """For resnet, the lr starts from 0.1, and is divided by 10 at 80 and 120 epochs"""
+#     if epoch < 80:
+#         lr = 0.1
+#     elif epoch < 120:
+#         lr = 0.01
+#     else:
+#         lr = 0.001
+#     for param_group in optimizer.param_groups:
+#         param_group['lr'] = lr
         
 def model_train(model, model_name, dataset):
     print(f"device:{device}")
@@ -141,10 +141,11 @@ def model_train(model, model_name, dataset):
     model.to(device)
     
     best_acc = 0
+    best_model_wts = copy.deepcopy(model.state_dict())
     epoch_length = 200
     
     for epoch in range(epoch_length):
-        adjust_learning_rate(optimizer, epoch)
+        # adjust_learning_rate(optimizer, epoch)
         logging.info(f"Epoch: {epoch + 1} / {epoch_length}")
         print(f"epoch : {epoch + 1} / {epoch_length}")
         train_loss, train_acc1, train_acc5 = train(model, criterion, dataset, optimizer)
@@ -152,7 +153,6 @@ def model_train(model, model_name, dataset):
         if train_acc1 > best_acc:
             best_acc = train_acc1
             best_model_wts = copy.deepcopy(model.state_dict())
-        model.load_state_dict(best_model_wts)
         
         print(f"Train Loss: {train_loss}, Top-1 Accuracy: {train_acc1}, Top-5 Accuracy: {train_acc5}")
         logging.info(f"Train Loss: {train_loss}, Top-1 Accuracy: {train_acc1}, Top-5 Accuracy: {train_acc5}")
@@ -165,6 +165,7 @@ def model_train(model, model_name, dataset):
     learning_time = time.time() - start_time
     logging.info(f"Learning Time: {learning_time // 60:.0f}m {learning_time % 60:.0f}s")
     
+    model.load_state_dict(best_model_wts)
     torch.save(best_model_wts, f"model_pth/best_model_weights_{model_name}_teacher_cifar_10.pth")
     print(f"Learning Time : {learning_time // 60:.0f}m {learning_time % 60:.0f}s")
     
