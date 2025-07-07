@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 from datasets import cifar_10
 from datasets.cifar_10 import membership_dataset_loader
 from models.lenet import lenet5, lenet5_half
+from models.resnet import resnet20, resnet56
 
 # member 
 member_idx = np.load('./datasets/cifar-10/member_idx.npy')
@@ -78,7 +79,7 @@ def train(model, criterion, train_loader, optimizer):
             batch_size = inputs.size(0)
             optimizer.zero_grad()
 
-            outputs = model(inputs)
+            outputs, _ = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()    
@@ -104,7 +105,7 @@ def test(model, criterion, test_loader):
     with torch.no_grad():
         for batch_idx, (inputs, labels) in enumerate(test_loader):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
+            outputs, _ = model(inputs)
             loss = criterion(outputs, labels)
             batch_size = inputs.size(0)
             
@@ -118,16 +119,16 @@ def test(model, criterion, test_loader):
         
         return test_loss, test_acc1
     
-# def adjust_learning_rate(optimizer, epoch):
-#     """For resnet, the lr starts from 0.1, and is divided by 10 at 80 and 120 epochs"""
-#     if epoch < 80:
-#         lr = 0.1
-#     elif epoch < 120:
-#         lr = 0.01
-#     else:
-#         lr = 0.001
-#     for param_group in optimizer.param_groups:
-#         param_group['lr'] = lr
+def adjust_learning_rate(optimizer, epoch):
+    """For resnet, the lr starts from 0.1, and is divided by 10 at 80 and 120 epochs"""
+    if epoch < 80:
+        lr = 0.1
+    elif epoch < 120:
+        lr = 0.01
+    else:
+        lr = 0.001
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
         
 def model_train(model, model_name, dataset):
     print(f"device:{device}")
@@ -145,7 +146,7 @@ def model_train(model, model_name, dataset):
     epoch_length = 200
     
     for epoch in range(epoch_length):
-        # adjust_learning_rate(optimizer, epoch)
+        adjust_learning_rate(optimizer, epoch)
         logging.info(f"Epoch: {epoch + 1} / {epoch_length}")
         print(f"epoch : {epoch + 1} / {epoch_length}")
         train_loss, train_acc1, train_acc5 = train(model, criterion, dataset, optimizer)
@@ -170,5 +171,5 @@ def model_train(model, model_name, dataset):
     print(f"Learning Time : {learning_time // 60:.0f}m {learning_time % 60:.0f}s")
     
 if __name__ == "__main__":
-    model, model_name = lenet5()
+    model, model_name = resnet56(num_classes=10)
     model_train(model, model_name, member)

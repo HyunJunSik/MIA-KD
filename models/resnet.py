@@ -133,7 +133,7 @@ class ResNet(nn.Module):
         f2 = x
         x, f3_pre = self.layer3(x)
         f3 = x
-
+        
         x = self.avgpool(x)
         avg = x.reshape(x.size(0), -1)
         out = self.fc(avg)
@@ -184,6 +184,6 @@ if __name__=="__main__":
     # feats["feats"][-1].shape : 64 (resnet20, resnet32, resnet110)
     # feats["feats"][-1].shape : 256 (resnet8x4, resnet32x4)
     logits, feats = net(x)
-    print(feats["feats"][-1].shape)
+    print(feats["pooled_feat"][-1].shape)
 
     

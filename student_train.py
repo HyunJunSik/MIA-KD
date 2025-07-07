@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 from datasets import cifar_10
 from datasets.cifar_10 import membership_dataset_loader
 from models.lenet import lenet5, lenet5_half
+from models.resnet import resnet20
 
 # non-member 
 member_idx = np.load('./datasets/cifar-10/member_idx.npy')
@@ -78,7 +79,7 @@ def train(model, criterion, train_loader, optimizer):
             batch_size = inputs.size(0)
             optimizer.zero_grad()
 
-            outputs = model(inputs)
+            outputs, _ = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()    
@@ -104,7 +105,7 @@ def test(model, criterion, test_loader):
     with torch.no_grad():
         for batch_idx, (inputs, labels) in enumerate(test_loader):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
+            outputs, _ = model(inputs)
             loss = criterion(outputs, labels)
             batch_size = inputs.size(0)
             
@@ -170,5 +171,5 @@ def model_train(model, model_name, dataset):
     print(f"Learning Time : {learning_time // 60:.0f}m {learning_time % 60:.0f}s")
     
 if __name__ == "__main__":
-    model, model_name = lenet5_half()
+    model, model_name = resnet20(num_classes=10)
     model_train(model, model_name, nonmember)

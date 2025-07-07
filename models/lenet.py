@@ -12,7 +12,7 @@ class LeNet5(nn.Module):
     def __init__(self):
         super(LeNet5, self).__init__()
 
-        self.conv1 = nn.Conv2d(3, 6, kernel_size=(5, 5))
+        self.conv1 = nn.Conv2d(1, 6, kernel_size=(5, 5))
         self.relu1 = nn.ReLU()
         self.maxpool1 = nn.MaxPool2d(kernel_size=(2, 2), stride=2)
         self.conv2 = nn.Conv2d(6, 16, kernel_size=(5, 5))
@@ -33,7 +33,9 @@ class LeNet5(nn.Module):
         output = self.maxpool2(output)
         output = self.conv3(output)
         output = self.relu3(output)
+        print(output.shape)
         feature = output.view(-1, 120)
+        print(feature.shape)
         output = self.fc1(feature)
         output = self.relu4(output)
         output = self.fc2(output)
@@ -48,7 +50,7 @@ class LeNet5Half(nn.Module):
     def __init__(self):
         super(LeNet5Half, self).__init__()
 
-        self.conv1 = nn.Conv2d(3, 3, kernel_size=(5, 5))
+        self.conv1 = nn.Conv2d(1, 3, kernel_size=(5, 5))
         self.relu1 = nn.ReLU()
         self.maxpool1 = nn.MaxPool2d(kernel_size=(2, 2), stride=2)
         self.conv2 = nn.Conv2d(3, 8, kernel_size=(5, 5))
@@ -83,3 +85,9 @@ def lenet5():
  
 def lenet5_half():
     return LeNet5Half(), "LeNet5Half"
+
+if __name__=="__main__":
+    x = torch.randn(2, 1, 32, 32)
+    net, name = lenet5()
+    logit = net(x)
+    
