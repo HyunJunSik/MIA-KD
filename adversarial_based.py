@@ -1,15 +1,13 @@
-#Copyright (C) 2019. Huawei Technologies Co., Ltd. All rights reserved.
-
-#This program is free software; you can redistribute it and/or modify it under the terms of the BSD 3-Clause License.
-
-#This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the BSD 3-Clause License for more details.
-
+'''
+python adversarial_based.py --dataset cifar10 --channels 3 --n_epochs 500 --batch_size 1024 --lr_G 0.02 --lr_S 0.1 --latent_dim 1000 --oh 0.05 --ie 5 --a 0.01
+'''
 import argparse
 import os
 import numpy as np
 import math
 import sys
 import pdb
+import copy
 
 import torchvision.transforms as transforms
 
@@ -25,11 +23,21 @@ from torchvision.datasets import CIFAR10
 from torchvision.datasets import CIFAR100
 import torchvision
 import matplotlib.pyplot as plt
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+dir = os.getcwd()
+ROOT = os.path.dirname(dir)
+sys.path.append(ROOT)
+seed = 2024
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)  
+from models.resnet import resnet20, resnet56
+from datasets import cifar_10
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='MNIST', choices=['MNIST','cifar10','cifar100'])
 parser.add_argument('--data', type=str, default='/cache/data/')
-parser.add_argument('--teacher_dir', type=str, default='./models_pth/')
+parser.add_argument('--teacher_dir', type=str, default='./model_pth/')
 parser.add_argument('--n_epochs', type=int, default=200, help='number of epochs of training')
 parser.add_argument('--batch_size', type=int, default=512, help='size of the batches')
 parser.add_argument('--lr_G', type=float, default=0.02, help='learning rate')
@@ -40,16 +48,13 @@ parser.add_argument('--channels', type=int, default=1, help='number of image cha
 parser.add_argument('--oh', type=float, default=1, help='one hot loss')
 parser.add_argument('--ie', type=float, default=5, help='information entropy loss')
 parser.add_argument('--a', type=float, default=0.1, help='activation loss')
-parser.add_argument('--output_dir', type=str, default='./synthetic_students_pth/')
+parser.add_argument('--output_dir', type=str, default='./generator_pth/')
 
 opt = parser.parse_args()
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
 
 cuda = True 
-
-accr = 0
-accr_best = 0
 
 def show_images(images, title=""):
     images = images.detach().cpu()
@@ -97,7 +102,9 @@ class Generator(nn.Module):
 generator = Generator().cuda()
 # torch.save(net,args.output_dir + '_' + net_name + '_' + args.dataset)
 # teacher = torch.load(opt.teacher_dir + 'resnet34_' + opt.dataset).cuda()
-teacher = torch.load(opt.teacher_dir + 'LeNet_MNIST').cuda()
+teacher, teacher_name = resnet56(num_classes=10)
+teacher.load_state_dict(torch.load(opt.teacher_dir + 'best_model_weights_resnet56_teacher_cifar_10.pth'))
+teacher.cuda()
 teacher.eval()
 criterion = torch.nn.CrossEntropyLoss().cuda()
 
@@ -110,9 +117,10 @@ def kdloss(y, teacher_scores):
     l_kl = F.kl_div(p, q, size_average=False)  / y.shape[0]
     return l_kl
 
+
 if opt.dataset == 'MNIST':    
     # Configure data loader   
-    net, net_name = lenet.lenet5_half()
+    net, net_name = resnet20(num_classes=10)
     net.cuda()
     net = nn.DataParallel(net)
     data_test = MNIST(opt.data,
@@ -128,20 +136,26 @@ if opt.dataset == 'MNIST':
     optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr_G)
     optimizer_S = torch.optim.Adam(net.parameters(), lr=opt.lr_S)
 
+
+# test dataset
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+])
+
+
 if opt.dataset != 'MNIST':  
     transform_test = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
     if opt.dataset == 'cifar10': 
-        net, net_name = resnet.ResNet18()
+        net, net_name = resnet20(num_classes=10)
         net.cuda()
         net = nn.DataParallel(net)
-        data_test = CIFAR10(opt.data,
-                          train=False,
-                          transform=transform_test)
+        data_test = datasets.CIFAR10(root='/cache/data/', train=False, download=True, transform=transform)
     if opt.dataset == 'cifar100': 
-        net, net_name = resnet.ResNet18(num_classes=100)
+        net, net_name = resnet20(num_classes=100)
         net.cuda()
         net = nn.DataParallel(net)
         data_test = CIFAR100(opt.data,
@@ -155,6 +169,9 @@ if opt.dataset != 'MNIST':
     optimizer_S = torch.optim.SGD(net.parameters(), lr=opt.lr_S, momentum=0.9, weight_decay=5e-4)
 
 
+best_acc = 0
+best_model_wts = copy.deepcopy(net.state_dict())
+
 def adjust_learning_rate(optimizer, epoch, learing_rate):
     if epoch < 800:
         lr = learing_rate
@@ -164,7 +181,6 @@ def adjust_learning_rate(optimizer, epoch, learing_rate):
         lr = 0.01*learing_rate
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
-        
         
 # ----------
 #  Training
@@ -184,8 +200,8 @@ for epoch in range(opt.n_epochs):
         gen_imgs = generator(z)
         
         optimizer_G.zero_grad()
-        outputs_T, features_T = teacher(gen_imgs, out_feature=True)
-        outputs_S = net(gen_imgs.detach())
+        outputs_T, features_T = teacher(gen_imgs)
+        outputs_S, _ = net(gen_imgs.detach())
         
         soft_T = torch.nn.functional.softmax(outputs_T, dim=1)
         soft_S = torch.nn.functional.softmax(outputs_S, dim=1)
@@ -196,8 +212,8 @@ for epoch in range(opt.n_epochs):
         
         optimizer_S.zero_grad()
         gen_imgs2 = generator(z).detach()   # detach()로 그래프 새로 생성 & 분리
-        outputs_T2, _ = teacher(gen_imgs2, out_feature=True)
-        outputs_S2 = net(gen_imgs2)
+        outputs_T2, _ = teacher(gen_imgs2)
+        outputs_S2, _ = net(gen_imgs2)
         soft_T2 = torch.nn.functional.softmax(outputs_T2, dim=1)
         soft_S2 = torch.nn.functional.softmax(outputs_S2, dim=1)
         kd_loss = torch.nn.functional.kl_div(soft_S2.log(), soft_T2, reduction='batchmean')
@@ -211,7 +227,7 @@ for epoch in range(opt.n_epochs):
         for i, (images, labels) in enumerate(data_test_loader):
             images = images.cuda()
             labels = labels.cuda()
-            output = net(images)
+            output, _ = net(images)
             avg_loss += criterion(output, labels).sum()
             pred = output.data.max(1)[1]
             total_correct += pred.eq(labels.data.view_as(pred)).sum()
@@ -219,9 +235,24 @@ for epoch in range(opt.n_epochs):
     avg_loss /= len(data_test_loader)
     print('Test Avg. Loss: %f, Accuracy: %f' % (avg_loss.data.item(), float(total_correct) / len(data_test)))
     accr = round(float(total_correct) / len(data_test), 4)
-    if accr > accr_best:
-        torch.save(net,opt.output_dir + 'student_' + net_name + '_MNIST')
-        accr_best = accr
+    
+    if accr > best_acc:
+        best_acc = accr
+        best_model_wts = copy.deepcopy(net.state_dict())
+        torch.save(best_model_wts, f"model_pth/best_model_weights_{net_name}_student_{opt.dataset}.pth")
+
+    if (epoch + 1) % 50 == 0:
+        checkpoint_path = f"./checkpoints/{teacher_name}_adv_generator.pth"
+        torch.save({
+            'epoch' : epoch + 1,
+            'generator_state_dict' : generator.state_dict(),
+            'optimizer_G_state_dict' : optimizer_G.state_dict(),
+            'optimizer_S_state_dict' : optimizer_S.state_dict(),
+            'best_acc' : best_acc
+        }, checkpoint_path)
+        print(f"Checkpoint saved")
+
+net.load_state_dict(best_model_wts)
 
 z = Variable(torch.randn(128, opt.latent_dim)).cuda()
 gen_imgs = generator(z)

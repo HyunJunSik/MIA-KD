@@ -6,7 +6,7 @@
 
 
 '''
-python generative-based.py --dataset cifar10 --channels 3 --n_epochs 2000 --batch_size 1024 --lr_G 0.02 --lr_S 0.1 --latent_dim 1000 --oh 0.05 --ie 5 --a 0.01
+python generative-based.py --dataset cifar10 --channels 3 --n_epochs 500 --batch_size 1024 --lr_G 0.02 --lr_S 0.1 --latent_dim 1000 --oh 0.05 --ie 5 --a 0.01
 '''
 import argparse
 import os
@@ -14,6 +14,7 @@ import numpy as np
 import math
 import sys
 import pdb
+import copy
 
 import torchvision.transforms as transforms
 
@@ -39,7 +40,6 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)  
 from models.resnet import resnet20, resnet56
 from datasets import cifar_10
-from datasets.cifar_10 import membership_dataset_loader
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='MNIST', choices=['MNIST','cifar10','cifar100'])
@@ -62,9 +62,6 @@ opt = parser.parse_args()
 img_shape = (opt.channels, opt.img_size, opt.img_size)
 
 cuda = True 
-
-accr = 0
-accr_best = 0
 
 def show_images(images, title=""):
     images = images.detach().cpu()
@@ -146,11 +143,6 @@ if opt.dataset == 'MNIST':
     optimizer_G = torch.optim.Adam(generator.parameters(), lr=opt.lr_G)
     optimizer_S = torch.optim.Adam(net.parameters(), lr=opt.lr_S)
 
-# non-member 
-member_idx = np.load('./datasets/cifar-10/member_idx.npy')
-nonmember_idx = np.load('./datasets/cifar-10/nonmember_idx.npy')
-shadow_idx = np.load('./datasets/cifar-10/shadow_idx.npy')
-member, nonmember, shadow = membership_dataset_loader(member_idx, nonmember_idx, shadow_idx)
 
 # test dataset
 transform = transforms.Compose([
@@ -183,6 +175,9 @@ if opt.dataset != 'MNIST':
 
     optimizer_S = torch.optim.SGD(net.parameters(), lr=opt.lr_S, momentum=0.9, weight_decay=5e-4)
 
+
+best_acc = 0
+best_model_wts = copy.deepcopy(net.state_dict())
 
 def adjust_learning_rate(optimizer, epoch, learing_rate):
     if epoch < 800:
@@ -245,11 +240,37 @@ for epoch in range(opt.n_epochs):
     avg_loss /= len(data_test_loader)
     print('Test Avg. Loss: %f, Accuracy: %f' % (avg_loss.data.item(), float(total_correct) / len(data_test)))
     accr = round(float(total_correct) / len(data_test), 4)
-    if accr > accr_best:
-        torch.save(net,opt.output_dir + 'student_' + net_name + '_MNIST')
-        accr_best = accr
+    
+    if accr > best_acc:
+        best_acc = accr
+        best_model_wts = copy.deepcopy(net.state_dict())
+        torch.save(best_model_wts, f"model_pth/best_model_weights_{net_name}_student_{opt.dataset}.pth")
+
+    if (epoch + 1) % 50 == 0:
+        checkpoint_path = f"./checkpoints/{net_name}_generator.pth"
+        torch.save({
+            'epoch' : epoch + 1,
+            'generator_state_dict' : generator.state_dict(),
+            'optimizer_G_state_dict' : optimizer_G.state_dict(),
+            'optimizer_S_state_dict' : optimizer_S.state_dict(),
+            'best_acc' : best_acc
+        }, checkpoint_path)
+        print(f"Checkpoint saved")
+
+net.load_state_dict(best_model_wts)
 
 z = Variable(torch.randn(128, opt.latent_dim)).cuda()
 gen_imgs = generator(z)
 show_images(gen_imgs, title="generated images")
 torch.save(generator, opt.output_dir + 'adv_generator_latdim_150' + '_MNIST')
+
+# checkpoint_epoch = 50  # 예: 50 epoch에서 재개
+# checkpoint_path = f"imagenet_model_pth/checkpoint_epoch_{checkpoint_epoch}.pth"
+
+# checkpoint = torch.load(checkpoint_path)
+# model.load_state_dict(checkpoint['model_state_dict'])
+# optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+# start_epoch = checkpoint['epoch']
+# best_acc = checkpoint['best_acc']
+
+# print(f"Resuming training from epoch {start_epoch}")
